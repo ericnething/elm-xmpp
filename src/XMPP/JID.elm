@@ -7,8 +7,7 @@ module XMPP.JID
     , local
     , domain
     , resource
-    , empty
-    , makeJID
+    , new
     )
 
 import Parser
@@ -47,9 +46,6 @@ domain (JID jid) = jid.domain
 resource : JID -> String
 resource (JID jid) = jid.resource
 
-empty : JID
-empty = JID { local = "", domain = "", resource = "" }
-
 toString : JID -> String
 toString (JID jid) =
     let
@@ -68,8 +64,8 @@ fromString : String -> Maybe JID
 fromString = Result.toMaybe << run parser
     
 
-makeJID : String -> String -> String -> JID
-makeJID localPart domainPart resourcePart =
+new : String -> String -> String -> JID
+new localPart domainPart resourcePart =
     JID { local    = localPart
         , domain   = domainPart
         , resource = resourcePart
@@ -77,7 +73,7 @@ makeJID localPart domainPart resourcePart =
 
 parser : Parser JID
 parser =
-    succeed makeJID
+    succeed new
         |= localParser
         |= domainParser
         |= resourceParser
