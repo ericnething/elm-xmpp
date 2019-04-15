@@ -18,23 +18,63 @@ module XMPP.Stanza.Message
 
     -- XML
     , toXml
+    , fromXml
     )
 
+{-| Message
+
+# Types
+
+@doc Message, Attributes, Type
+
+# Constructing Message Stanzas
+
+@doc chat, groupchat, error, headline, normal
+
+# Constructing common XML nodes
+
+@doc body
+
+# Inspecting a Message Stanza
+
+@doc inspect
+
+# Encoding to XML
+
+@doc toXml
+
+# Decoding from XML
+
+@doc fromXml
+
+ -}
+
 import XmlParser exposing (..)
-import XMPP.Stanza.Utils exposing (filterAttributes)
+import XMPP.Stanza.Utils as Utils
 import XMPP.JID as JID exposing (JID)
+
+------------------------------------------------------------
+-- Types
+------------------------------------------------------------
 
 type Message = Message Attributes (List Node)
 
 type alias Attributes =
-    { to      : JID
+    { to      : Maybe JID
     , from    : Maybe JID
     , type_   : Type
     , id      : Maybe String
     , xmllang : Maybe String
     }
 
-
+def : Attributes
+def =
+    { to      = Nothing
+    , from    = Nothing
+    , type_   = Normal
+    , id      = Nothing
+    , xmllang = Nothing
+    }
 
 {-
 Page 71 of https://datatracker.ietf.org/doc/rfc6121/
@@ -95,9 +135,15 @@ type Type
     | Normal
 
 
--- Constructing
+------------------------------------------------------------
+-- Constructing Message Stanzas
+------------------------------------------------------------
 
-message : JID -> Type -> List Node -> Message
+
+{-| Generic message constuctor meant for internal use only.
+
+ -}
+message : Maybe JID -> Type -> List Node -> Message
 message to type_ nodes =
     Message
     { to      = to
@@ -108,27 +154,62 @@ message to type_ nodes =
     }
     nodes
 
+
+{-| Construct a `chat` message stanza.
+
+Use this to construct a private message that you want to send to an
+individual entity.
+
+ -}
 chat : JID -> List Node -> Message
-chat to = message to Chat
+chat to = message (Just to) Chat
 
+
+{-| Construct a `groupchat` message stanza.
+
+Use this when you want to construct a message that you can send to a
+Multi-User Chat (MUC) room, where the JID identifies the room.
+
+ -}
 groupchat : JID -> List Node -> Message
-groupchat to = message to Groupchat
+groupchat to = message (Just to) Groupchat
 
+
+{-| Construct an `error` message stanza.
+
+You probably won't need this, but if you do, you'll know.
+
+ -}
 error : JID -> List Node -> Message
-error to = message to Error
+error to = message (Just to) Error
 
+
+{-| Construct a `headline` message stanza.
+
+You probably won't need this, but if you do, you'll know.
+
+ -}
 headline : JID -> List Node -> Message
-headline to = message to Headline
+headline to = message (Just to) Headline
 
+
+{-| Construct a `normal` message stanza.
+
+You probably won't need this, but if you do, you'll know.
+
+ -}
 normal : JID -> List Node -> Message
-normal to = message to Normal
+normal to = message (Just to) Normal
 
 
--- Extra constructors for common XML nodes
+------------------------------------------------------------
+-- Constructing common XML nodes
+------------------------------------------------------------
 
 
-{-| Construct an XML `body` node. This is often used inside of a
-`message` stanza.
+{-| Construct an XML `body` node.
+
+This is often used inside of a `message` stanza.
 
     chat alice [ body "Hello Alice!" ]
 
@@ -137,15 +218,20 @@ body : String -> Node
 body s = Element "body" [] [ Text s ]
 
 
--- Inspecting
+------------------------------------------------------------
+-- Inspecting a Message Stanza
+------------------------------------------------------------
 
 inspect : Message -> (Attributes, List Node)
 inspect (Message attrs nodes) = (attrs, nodes)
 
--- XML
 
-encodeType : Type -> String
-encodeType type_ =
+------------------------------------------------------------
+-- Encoding to XML
+------------------------------------------------------------
+
+showType : Type -> String
+showType type_ =
     case type_ of
         Chat      -> "chat"
         Groupchat -> "groupchat"
@@ -153,18 +239,84 @@ encodeType type_ =
         Headline  -> "headline"
         Normal    -> "normal"
 
+
+{-| Encode a Message to an XML Node.
+
+ -}
 toXml : Message -> Node
 toXml (Message { to, from, type_, id, xmllang } nodes) =
     let
         fromJID = Maybe.withDefault "" << Maybe.map JID.toString
         toString = Maybe.withDefault ""
-        attrs = filterAttributes
-                [ { name = "to",       value = JID.toString to }
-                , { name = "from",     value = fromJID from }
-                , { name = "type",     value = encodeType type_ }
-                , { name = "id",       value = toString id }
-                , { name = "xml:lang", value = toString xmllang }
-                , { name = "xmlns",    value = "jabber:client" }
+        attrs = Utils.filterAttributes
+                [ Attribute "to"       (fromJID to)
+                , Attribute "from"     (fromJID from)
+                , Attribute "type"     (showType type_)
+                , Attribute "id"       (toString id)
+                , Attribute "xml:lang" (toString xmllang)
+                , Attribute "xmlns"    "jabber:client"
                 ]
     in
         Element "message" attrs nodes
+
+
+------------------------------------------------------------
+-- Decoding from XML
+------------------------------------------------------------
+
+{-| Decode a Message stanza from an XML Node.
+
+ -}
+fromXml : Node -> Result String Message
+fromXml node =
+    case node of
+        Element "message" attrs children ->
+            Ok (Message (toAttributes attrs) children)
+        _ ->
+            Err "invalid message stanza"
+
+toAttributes : List Attribute -> Attributes
+toAttributes =
+    List.foldl updateAttribute def
+
+updateAttribute : Attribute -> Attributes -> Attributes
+updateAttribute { name, value } attrs =
+    case name of
+        "to" ->
+            Utils.updateAttributeTo value attrs
+
+        "from" ->
+            Utils.updateAttributeFrom value attrs
+
+        "type" ->
+            updateAttributeType value attrs
+
+        "id" ->
+            Utils.updateAttributeId value attrs
+
+        "xml:lang" ->
+            Utils.updateAttributeXmllang value attrs
+
+        _ ->
+            attrs
+
+updateAttributeType : String -> { r | type_ : Type } -> { r | type_ : Type }
+updateAttributeType value attrs =
+    case readType value of
+        Just type_ ->
+            { attrs | type_ = type_ }
+
+        Nothing ->
+            attrs
+
+readType : String -> Maybe Type
+readType s =
+    case s of
+        "chat"      -> Just Chat
+        "groupchat" -> Just Groupchat
+        "error"     -> Just Error
+        "headline"  -> Just Headline
+        "normal"    -> Just Normal
+        ""          -> Just Normal
+        _           -> Nothing
+
