@@ -1,4 +1,4 @@
-module XMPP.JID
+module Xmpp.JID
     exposing
     ( JID
     , fromString

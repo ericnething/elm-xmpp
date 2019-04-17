@@ -1,4 +1,4 @@
-module XMPP.Stanza.Message
+module Xmpp.Stanza.Message
     exposing
     -- Types
     ( Message
@@ -13,8 +13,13 @@ module XMPP.Stanza.Message
     , normal
     , body
 
-    -- Inspect
-    , inspect
+    -- Modify Attributes
+    , setId
+    , setXmllang
+    , setFrom
+
+    -- Decode
+    , decode
 
     -- XML
     , toXml
@@ -27,31 +32,36 @@ module XMPP.Stanza.Message
 
 @doc Message, Attributes, Type
 
-# Constructing Message Stanzas
+# Construct Message Stanzas
 
 @doc chat, groupchat, error, headline, normal
 
-# Constructing common XML nodes
+# Modify the Attributes
+
+@doc setId, setXmllang
+
+# Construct common XML nodes
 
 @doc body
 
-# Inspecting a Message Stanza
+# Decode into your own custom type
 
-@doc inspect
+@doc decode
 
-# Encoding to XML
+# Convert to XML
 
 @doc toXml
 
-# Decoding from XML
+# Convert from XML
 
 @doc fromXml
 
  -}
 
-import XmlParser exposing (..)
-import XMPP.Stanza.Utils as Utils
-import XMPP.JID as JID exposing (JID)
+import Xmpp.Xml exposing (..)
+import Xmpp.Stanza.Utils as Utils
+import Xmpp.JID as JID exposing (JID)
+import Xmpp.Xml.Decode as XD
 
 ------------------------------------------------------------
 -- Types
@@ -203,6 +213,50 @@ normal to = message (Just to) Normal
 
 
 ------------------------------------------------------------
+-- Modify the Attributes
+------------------------------------------------------------
+
+{-| Set the id attribute.
+
+Use this if you would like to track your messages with a unique
+identifier.
+
+    Message.chat alice
+        [ Message.body "Oh dear! Oh dear! I shall be late!" ]
+    |> Message.setId "a1b2c3"
+
+ -}
+setId : String -> Message -> Message
+setId id (Message attrs nodes) =
+    Message { attrs | id = Just id } nodes
+
+{-| Set the xml:lang attribute.
+
+Use this to set the default language that should be used to interpret
+any textual data in your content. If you don't set this attribute,
+your server will set it for you to its own default.
+
+    Message.chat alice
+        [ Message.body "Oh dear! Oh dear! I shall be late!" ]
+    |> Message.setXmllang "en"
+
+ -}
+setXmllang : String -> Message -> Message
+setXmllang xmllang (Message attrs nodes) =
+    Message { attrs | xmllang = Just xmllang } nodes
+
+{-| Set the from attribute.
+
+This is only exposed for testing. The server will always override any
+value the client sets for this attribute.
+
+ -}
+setFrom : JID -> Message -> Message
+setFrom from (Message attrs nodes) =
+    Message { attrs | from = Just from } nodes
+
+
+------------------------------------------------------------
 -- Constructing common XML nodes
 ------------------------------------------------------------
 
@@ -222,9 +276,22 @@ body s = Element "body" [] [ Text s ]
 -- Inspecting a Message Stanza
 ------------------------------------------------------------
 
-inspect : Message -> (Attributes, List Node)
-inspect (Message attrs nodes) = (attrs, nodes)
+{-| Get the attributes of a Message stanza.
 
+ -}
+attributes : Message -> Attributes
+attributes (Message attrs nodes) = attrs
+
+{-| Get the children nodes of a Message stanza.
+
+ -}
+children : Message -> List Node
+children (Message attrs nodes) = nodes
+
+
+decode : (Attributes -> XD.Decoder a) -> Message -> Result XD.Error a
+decode toDecoder msg =
+    XD.decodeXml (toDecoder (attributes msg)) (toXml msg)
 
 ------------------------------------------------------------
 -- Encoding to XML
@@ -243,7 +310,7 @@ showType type_ =
 {-| Encode a Message to an XML Node.
 
  -}
-toXml : Message -> Node
+toXml : Message -> Xml
 toXml (Message { to, from, type_, id, xmllang } nodes) =
     let
         fromJID = Maybe.withDefault "" << Maybe.map JID.toString
@@ -257,7 +324,8 @@ toXml (Message { to, from, type_, id, xmllang } nodes) =
                 , Attribute "xmlns"    "jabber:client"
                 ]
     in
-        Element "message" attrs nodes
+        Xml [] Nothing <|
+            Element "message" attrs nodes
 
 
 ------------------------------------------------------------
@@ -267,11 +335,11 @@ toXml (Message { to, from, type_, id, xmllang } nodes) =
 {-| Decode a Message stanza from an XML Node.
 
  -}
-fromXml : Node -> Result String Message
-fromXml node =
-    case node of
-        Element "message" attrs children ->
-            Ok (Message (toAttributes attrs) children)
+fromXml : Xml -> Result String Message
+fromXml doc =
+    case doc.root of
+        Element "message" attrs childNodes ->
+            Ok (Message (toAttributes attrs) childNodes)
         _ ->
             Err "invalid message stanza"
 

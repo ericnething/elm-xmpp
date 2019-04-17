@@ -1,7 +1,7 @@
-module XMPP.Connection exposing (..)
+module Xmpp.Connection exposing (..)
 
-import XmlParser
-import XMPP.JID as JID exposing (JID)
+import Xmpp.Xml
+import Xmpp.JID as JID exposing (JID)
 
 {-
 outgoing      <open>

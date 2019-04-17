@@ -1,4 +1,4 @@
-module XMPP.Stanza.Presence
+module Xmpp.Stanza.Presence
     exposing
     -- Types
     ( Presence
@@ -17,8 +17,12 @@ module XMPP.Stanza.Presence
     , probe
     , error
 
-    -- Inspect
-    , inspect
+    -- Modify Attributes
+    , setId
+    , setXmllang
+
+    -- Decode
+    , decode
 
     -- XML
     , toXml
@@ -31,27 +35,32 @@ module XMPP.Stanza.Presence
 
 @doc Presence, Attributes, Type
 
-# Constructing Presence Stanzas
+# Construct Presence Stanzas
 
 @doc available, availableTo, unavailable, unavailableTo, subscribe, subscribed, unsubscribe, unsubscribed, probe, error
 
-# Inspecting a Presence Stanza
+# Modify the Attributes
 
-@doc inspect
+@doc setId, setXmllang
 
-# Encoding to XML
+# Decode into your own custom type
+
+@doc decode
+
+# Convert to XML
 
 @doc toXml
 
-# Decoding from XML
+# Convert from XML
 
 @doc fromXml
 
  -}
 
-import XmlParser exposing (..)
-import XMPP.Stanza.Utils as Utils
-import XMPP.JID as JID exposing (JID)
+import Xmpp.Xml exposing (..)
+import Xmpp.Stanza.Utils as Utils
+import Xmpp.JID as JID exposing (JID)
+import Xmpp.Xml.Decode as XD
 
 ------------------------------------------------------------
 -- Types
@@ -144,6 +153,35 @@ available : List Node -> Presence
 available nodes = presence Nothing Available nodes
 
 
+{- See page 65 of https://tools.ietf.org/html/rfc6121
+
+   The OPTIONAL <show/> element specifies the particular availability
+   sub-state of an entity or a specific resource thereof.  A presence
+   stanza MUST NOT contain more than one <show/> element.  There are no
+   attributes defined for the <show/> element.  The <show/> element MUST
+   NOT contain mixed content (as defined in Section 3.2.2 of [XML]).
+   The XML character data of the <show/> element is not meant for
+   presentation to a human user.  The XML character data MUST be one of
+   the following (additional availability states could be defined
+   through extended content elements):
+
+   o  away -- The entity or resource is temporarily away.
+
+   o  chat -- The entity or resource is actively interested in chatting.
+
+   o  dnd -- The entity or resource is busy (dnd = "Do Not Disturb").
+
+   o  xa -- The entity or resource is away for an extended period (xa =
+      "eXtended Away").
+
+   If no <show/> element is provided, the entity is assumed to be online
+   and available.
+
+
+TODO: Consider adding constructors for each availability state.
+
+ -}
+
 {-| Construct an `available` presence stanza.
 
 Use this when you want to send an `available` presence to a specific
@@ -157,7 +195,7 @@ availableTo to nodes = presence (Just to) Available nodes
 {-| Construct an `unavailable` presence stanza.
 
 Use this to construct a presence that signals you are not available to
-receive stanzas.
+receive stanzas (equivalent to being offline).
 
  -}
 unavailable : List Node -> Presence
@@ -233,12 +271,57 @@ error to nodes = presence (Just to) Error nodes
 
 
 ------------------------------------------------------------
+-- Modify the Attributes
+------------------------------------------------------------
+
+{- | Set the id attribute.
+
+Use this if you would like to track your presence stanzas with a
+unique identifier.
+
+    Presence.subscribe alice []
+    |> Presence.setId "a1b2c3"
+
+ -}
+setId : String -> Presence -> Presence
+setId id (Presence attrs nodes) =
+    Presence { attrs | id = Just id } nodes
+
+{- | Set the xml:lang attribute.
+
+Use this to set the default language that should be used to interpret
+any textual data in your content. If you don't set this attribute,
+your server will set it for you to its own default.
+
+    Presence.available
+        [ Element "status" [] [ Text "Having a tea party" ] ]
+    |> Presence.setXmllang "en"
+
+ -}
+setXmllang : String -> Presence -> Presence
+setXmllang xmllang (Presence attrs nodes) =
+    Presence { attrs | xmllang = Just xmllang } nodes
+
+
+------------------------------------------------------------
 -- Inspecting a Presence Stanza
 ------------------------------------------------------------
 
-inspect : Presence -> (Attributes, List Node)
-inspect (Presence attrs nodes) = (attrs, nodes)
+{-| Get the attributes of a Presence stanza.
 
+ -}
+attributes : Presence -> Attributes
+attributes (Presence attrs nodes) = attrs
+
+{-| Get the children nodes of a Presence stanza.
+
+ -}
+children : Presence -> List Node
+children (Presence attrs nodes) = nodes
+
+decode : (Attributes -> XD.Decoder a) -> Presence -> Result XD.Error a
+decode toDecoder msg =
+    XD.decodeXml (toDecoder (attributes msg)) (toXml msg)
 
 ------------------------------------------------------------
 -- Encoding to XML
@@ -256,7 +339,7 @@ showType type_ =
         Probe        -> "probe"
         Error        -> "error"
 
-toXml : Presence -> Node
+toXml : Presence -> Xml
 toXml (Presence { to, from, type_, id, xmllang } nodes) =
     let
         fromJID = Maybe.withDefault "" << Maybe.map JID.toString
@@ -270,7 +353,8 @@ toXml (Presence { to, from, type_, id, xmllang } nodes) =
                 , Attribute "xmlns"    "jabber:client"
                 ]
     in
-        Element "presence" attrs nodes
+        Xml [] Nothing <|
+            Element "presence" attrs nodes
 
 
 ------------------------------------------------------------
@@ -281,11 +365,11 @@ toXml (Presence { to, from, type_, id, xmllang } nodes) =
 {-| Decode a Presence stanza from an XML Node.
 
  -}
-fromXml : Node -> Result String Presence
-fromXml node =
-    case node of
-        Element "presence" attrs children ->
-            Ok (Presence (toAttributes attrs) children)
+fromXml : Xml -> Result String Presence
+fromXml doc =
+    case doc.root of
+        Element "presence" attrs childNodes ->
+            Ok (Presence (toAttributes attrs) childNodes)
         _ ->
             Err "invalid presence stanza"
 

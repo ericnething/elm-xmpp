@@ -1,7 +1,7 @@
-module XMPP exposing (..)
+module Xmpp exposing (..)
 
-import XMPP.JID as JID exposing (JID)
-import XMPP.Stanza as Stanza
+import Xmpp.JID as JID exposing (JID)
+import Xmpp.Stanza as Stanza
 
 hello : String
 hello = "Hello"

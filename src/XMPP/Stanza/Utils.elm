@@ -1,7 +1,7 @@
-module XMPP.Stanza.Utils exposing (..)
+module Xmpp.Stanza.Utils exposing (..)
 
-import XmlParser exposing (..)
-import XMPP.JID as JID exposing (JID)
+import Xmpp.Xml exposing (..)
+import Xmpp.JID as JID exposing (JID)
 
 filterAttributes : List Attribute -> List Attribute
 filterAttributes =

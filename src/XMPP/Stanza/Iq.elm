@@ -1,4 +1,4 @@
-module XMPP.Stanza.Iq
+module Xmpp.Stanza.Iq
     exposing
     -- Types
     ( Iq
@@ -13,8 +13,12 @@ module XMPP.Stanza.Iq
     , result
     , error
 
-    -- Inspect
-    , inspect
+    -- Modify Attributes
+    , setId
+    , setXmllang
+ 
+    -- Decode
+    , decode
 
     -- XML
     , toXml
@@ -31,23 +35,28 @@ module XMPP.Stanza.Iq
 
 @doc get, getTo, set, setTo, result, error
 
-# Inspecting a Iq Stanza
+# Modify the Attributes
 
-@doc inspect
+@doc setId, setXmllang
 
-# Encoding to XML
+# Decode into your own custom type
+
+@doc decode
+
+# Convert to XML
 
 @doc toXml
 
-# Decoding from XML
+# Convert from XML
 
 @doc fromXml
 
  -}
 
-import XmlParser exposing (..)
-import XMPP.Stanza.Utils as Utils
-import XMPP.JID as JID exposing (JID)
+import Xmpp.Xml exposing (..)
+import Xmpp.Stanza.Utils as Utils
+import Xmpp.JID as JID exposing (JID)
+import Xmpp.Xml.Decode as XD
 
 ------------------------------------------------------------
 -- Types
@@ -159,12 +168,65 @@ error to nodes = iq (Just to) Error nodes
 
 
 ------------------------------------------------------------
+-- Modify the Attributes
+------------------------------------------------------------
+
+{- | Set the id attribute.
+
+The id attribute for iq stanzas is required. If you don't provide one,
+the connection manager will add one for you before sending your
+message out. Use this if you would like to track your iq stanzas with
+a unique identifier.
+
+    Iq.get
+        [ Element "query" [ Attribute "xmlns" "jabber:iq:roster" ] [] ]
+    |> Iq.setId "a1b2c3"
+
+ -}
+setId : String -> Iq -> Iq
+setId id (Iq attrs nodes) =
+    Iq { attrs | id = Just id } nodes
+
+{- | Set the xml:lang attribute.
+
+Use this to set the default language that should be used to interpret
+any textual data in your content. If you don't set this attribute,
+your server will set it for you to its own default.
+
+    Iq.result alice
+        [ Element "query"
+            [ Attribute "xmlns" "http://jabber.org/protocol/disco#items" ]
+            [ Element "item" [ Attribute "jid" "muc.wonderland.lit" ] []
+            , Element "item" [ Attribute "jid" "teaparty.wonderland.lit" ] []
+            ]
+        ]
+    |> Iq.setXmllang "en"
+
+ -}
+setXmllang : String -> Iq -> Iq
+setXmllang xmllang (Iq attrs nodes) =
+    Iq { attrs | xmllang = Just xmllang } nodes
+
+
+------------------------------------------------------------
 -- Inspecting an Iq Stanza
 ------------------------------------------------------------
 
-inspect : Iq -> (Attributes, List Node)
-inspect (Iq attr nodes) = (attr, nodes)
+{-| Get the attributes of an Iq stanza.
 
+ -}
+attributes : Iq -> Attributes
+attributes (Iq attrs nodes) = attrs
+
+{-| Get the children nodes of an Iq stanza.
+
+ -}
+children : Iq -> List Node
+children (Iq attrs nodes) = nodes
+
+decode : (Attributes -> XD.Decoder a) -> Iq -> Result XD.Error a
+decode toDecoder msg =
+    XD.decodeXml (toDecoder (attributes msg)) (toXml msg)
 
 ------------------------------------------------------------
 -- Encoding to XML
@@ -179,7 +241,7 @@ showType type_ =
         Error  -> "error"
 
 
-toXml : Iq -> Node
+toXml : Iq -> Xml
 toXml (Iq { to, from, type_, id, xmllang } nodes) =
     let
         fromJID = Maybe.withDefault "" << Maybe.map JID.toString
@@ -193,7 +255,8 @@ toXml (Iq { to, from, type_, id, xmllang } nodes) =
                 , Attribute "xmlns"    "jabber:client"
                 ]
     in
-        Element "iq" attrs nodes
+        Xml [] Nothing <|
+            Element "iq" attrs nodes
 
 
 ------------------------------------------------------------
@@ -204,11 +267,11 @@ toXml (Iq { to, from, type_, id, xmllang } nodes) =
 {-| Decode an Iq stanza from an XML Node.
 
  -}
-fromXml : Node -> Result String Iq
-fromXml node =
-    case node of
-        Element "iq" attrs children ->
-            Ok (Iq (toAttributes attrs) children)
+fromXml : Xml -> Result String Iq
+fromXml doc =
+    case doc.root of
+        Element "iq" attrs childNodes ->
+            Ok (Iq (toAttributes attrs) childNodes)
         _ ->
             Err "invalid iq stanza"
 
