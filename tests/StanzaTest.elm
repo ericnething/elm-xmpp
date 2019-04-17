@@ -24,11 +24,13 @@ testDiceRoll =
                             [ json """{ "dicetype": "fate" }""" ]
                         ]
                   decoder _ =
-                      XD.succeed "yay!"
+                      XD.path
+                          [XD.tag "diceroll", XD.tag "json"]
+                          (XD.single XD.string)
               in
                   Expect.equal
-                      (Message.decode decoder msg)
-                      (Ok "yay!")
+                      (Debug.log "result" (Message.decode decoder msg))
+                      (Ok """{ "dicetype": "fate" }""")
         , test "xml fate dice roll" <| \_ ->
               let
                   msg = sampleFateDiceRoll
@@ -220,7 +222,7 @@ sampleRedMarketsDiceRoll =
                       [ Text "6" ]
                 , Element "dice"
                       [ Attribute "type" "redmarkets"
-                      , Attribute "color" "blue"
+                      , Attribute "color" "black"
                       ]
                       [ Text "5" ]
                 ]
