@@ -304,7 +304,7 @@ setXmllang xmllang (Presence attrs nodes) =
 
 
 ------------------------------------------------------------
--- Inspecting a Presence Stanza
+-- Decode into your own custom type
 ------------------------------------------------------------
 
 {-| Get the attributes of a Presence stanza.

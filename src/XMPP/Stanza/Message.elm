@@ -273,7 +273,7 @@ body s = Element "body" [] [ Text s ]
 
 
 ------------------------------------------------------------
--- Inspecting a Message Stanza
+-- Decode into your own custom type
 ------------------------------------------------------------
 
 {-| Get the attributes of a Message stanza.

@@ -209,7 +209,7 @@ setXmllang xmllang (Iq attrs nodes) =
 
 
 ------------------------------------------------------------
--- Inspecting an Iq Stanza
+-- Decode into your own custom type
 ------------------------------------------------------------
 
 {-| Get the attributes of an Iq stanza.
@@ -223,6 +223,7 @@ attributes (Iq attrs nodes) = attrs
  -}
 children : Iq -> List Node
 children (Iq attrs nodes) = nodes
+
 
 decode : (Attributes -> XD.Decoder a) -> Iq -> Result XD.Error a
 decode toDecoder msg =
