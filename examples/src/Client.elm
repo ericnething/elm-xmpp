@@ -65,6 +65,7 @@ type SaslAuth
     | ChallengeResponseSent JD.Value
     | AuthSuccessReceived
     | AuthCompleted
+    | AuthFailed
 
 
 update : Msg -> Model -> (Model, Cmd Msg, ExternalMsg)
@@ -148,7 +149,10 @@ update msg model =
                         , None
                         )
                     else
-                        Debug.log "Success Validation Failed" (model, Cmd.none, None)
+                        Debug.log "Success Validation Failed"
+                        ({ model | sasl = AuthFailed }
+                        , Cmd.none
+                        , None)
 
                 Err e ->
                     let _ = Debug.log "Decoding Failed: " e in
