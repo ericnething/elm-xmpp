@@ -5,6 +5,7 @@ port module Websocket
     , connect
     , events
     , sendString
+    , sendCmd
     )
 
 import Json.Decode as Decode exposing (Decoder)
@@ -35,7 +36,7 @@ connect url protocols =
 
 sendString : ConnectionInfo -> String -> Cmd msg
 sendString connection text =
-    message "sendString"
+    message "send-string"
         (Encode.object
             [ ( "url", Encode.string connection.url )
             , ( "message", Encode.string text )
@@ -44,6 +45,10 @@ sendString connection text =
         |> toSocket
 
 
+sendCmd : String -> Value -> Cmd msg
+sendCmd cmd data =
+    toSocket (message cmd data)
+
 
 -- INBOUND
 
@@ -51,6 +56,8 @@ sendString connection text =
 type Event
     = Connected ConnectionInfo
     | StringMessage String
+    | SaslInitialResponse Value
+    | SaslChallengeResponse Value
     | BadMessage String
 
 
@@ -77,9 +84,17 @@ eventDecoder =
                         Decode.map Connected
                             (Decode.field "msg" connectionDecoder)
 
-                    "stringMessage" ->
+                    "string-message" ->
                         Decode.map StringMessage
                             (Decode.field "msg" Decode.string)
+
+                    "sasl-initial-response" ->
+                        Decode.map SaslInitialResponse
+                            (Decode.field "msg" Decode.value)
+
+                    "sasl-challenge-response" ->
+                        Decode.map SaslChallengeResponse
+                            (Decode.field "msg" Decode.value)
 
                     _ ->
                         Decode.succeed (BadMessage ("Unknown message type: " ++ msgType))

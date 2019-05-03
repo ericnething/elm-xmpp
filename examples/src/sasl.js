@@ -26,10 +26,11 @@ const _appendBuffer = function(buffer1, buffer2) {
 }
 
 const _xor = function(buffer1, buffer2) {
-    const result = new Uint8Array(buffer1.length);
-    for (let k = 0; k < buffer1.length; ++k) {
+    const result = new Uint8Array(buffer1.byteLength);
+    for (let k = 0; k < buffer1.byteLength; ++k) {
         result[k] = buffer1[k] ^ buffer2[k];
     }
+    return result
 }
 
 const _bufferToHex = buffer =>
@@ -42,21 +43,23 @@ const scramSha1 = {
     textEncoder: new TextEncoder("utf-8"),
     textDecoder: new TextDecoder("utf-8"),
     
-    Hi: function(password, salt, iterations) {
+    Hi: async function(password, salt, iterations) {
         const HMAC = scramSha1.HMAC;
         const int1 = new Uint8Array([0, 0, 0, 1]);
         
-        let ui1 = HMAC(text, _appendBuffer(salt, int1));
+        let ui1 = await HMAC(password, _appendBuffer(salt, int1));
+        // console.log("first HMAC round");
         let ui = ui1;
         for (let k = 0; k < iterations - 1; k++) {
-            ui1 = HMAC(text, ui1);
+            // console.log(`HMAC iteration ${k}`);
+            ui1 = await HMAC(password, ui1);
             ui = _xor(ui, ui1);
         }
 
         return ui;
     },
     HMAC: async function(key, data) {
-        const key = await window.crypto.subtle.importKey(
+        const hmackey = await window.crypto.subtle.importKey(
             "raw",
             key,
             { name: "HMAC", hash: { name: "SHA-1" } },
@@ -65,7 +68,7 @@ const scramSha1 = {
         );
         const hash = await window.crypto.subtle.sign(
             { name: "HMAC" },
-            key, //from generateKey or importKey above
+            hmackey, //from generateKey or importKey above
             data //ArrayBuffer of data you want to sign
         );
         return new Uint8Array(hash);
@@ -83,34 +86,43 @@ const scramSha1 = {
         const nonce = _bufferToHex(window.crypto.getRandomValues(new Uint8Array(32)));
         const normalizedPassword = saslprep(password);
         const initialMessageBare = `n=${username},r=${nonce}`;
-        const encoded = btoa(`n,,${initialMessage}`);
+        const encoded = btoa(`n,,${initialMessageBare}`);
 
         return {
+            nonce,
             initialMessageBare,
             encoded,
             normalizedPassword: scramSha1.textEncoder.encode(normalizedPassword)
         }
     },
-    challengeResponse: function(serverFirstMessage, client) {
-        const textEncode = scramSha1.textEncoder.encode;
-        const textDecode = scramSha1.textDecoder.decode;
+    challengeResponse: async function({ serverFirstMessage, client }) {
         const Hi = scramSha1.Hi;
         const H = scramSha1.H;
         const HMAC = scramSha1.HMAC;
         
         const decodeServerChallenge = function(text) {
-            const [[r, serverNonce],
-                   [s, salt],
-                   [i, iterations]
-                  ] = text.split(",").map(a => a.split("="));
-            if ((r === "r" && !serverNonce) &&
-                (s === "s" && !salt) &&
-                (i === "i" && !iterations)) {
+            const isNonemptyString = s => typeof s == "string" && s.length > 0;
+            const [r_serverNonce, s_salt, i_iterations] = atob(text).split(",");
+            const serverNonce =
+                  r_serverNonce.startsWith("r=") && r_serverNonce.slice(2);
+            
+            const salt = s_salt.startsWith("s=") && s_salt.slice(2);
+            
+            const iterations =
+                  i_iterations.startsWith("i=") && i_iterations.slice(2);
+
+            if ((isNonemptyString(serverNonce) &&
+                     serverNonce.startsWith(client.nonce)) &&
+                isNonemptyString(salt) &&
+                isNonemptyString(iterations)) {
+                console.log(serverNonce, salt, iterations);
                 return {
                     serverNonce,
-                    salt: textEncode(salt),
+                    salt: scramSha1.textEncoder.encode(salt),
                     iterations: parseInt(iterations)
                 }
+            } else {
+                console.log("Decoding of challenge response failed.");
             }
         };
 
@@ -118,22 +130,25 @@ const scramSha1 = {
         
         const clientFinalMessageBare = `c=biws,r=${serverNonce}`;
         
-        const saltedPassword = Hi(client.normalizedPassword, salt, iterations);
-        const clientKey = HMAC(saltedPassword, textEncode("Client Key"));
-        const storedKey = H(clientKey);
+        const saltedPassword = await Hi(client.normalizedPassword, salt, iterations);
+        const clientKey = await HMAC(saltedPassword, scramSha1.textEncoder.encode("Client Key"));
+        const storedKey = await H(clientKey);
         
-        const authMessage = textEncode([
+        const authMessage = scramSha1.textEncoder.encode([
             client.initialMessageBare,
             serverFirstMessage,
             clientFinalMessageBare
         ].join(","));
 
-        const clientSignature = HMAC(storedKey, authMessage);
-        const clientProof = btoa(textDecode(_xor(clientKey, clientSignature)));
-        const serverKey = HMAC(saltedPassword, textEncode("Server Key"));
-        const serverSignature = HMAC(serverKey, authMessage);
-
-        const clientFinalMessage = `${clientFinalMessageBare},p=${clientProof}`;
-        return clientFinalMessage;
+        const clientSignature = await HMAC(storedKey, authMessage);
+        // const clientProof = String.fromCharCode.apply(
+        //     null, _xor(clientKey, clientSignature)
+        // );
+        const clientProof = _xor(clientKey, clientSignature);
+        console.log("clientProof", clientProof);
+        const serverKey = await HMAC(saltedPassword, scramSha1.textEncoder.encode("Server Key"));
+        const serverSignature = await HMAC(serverKey, authMessage);
+        const clientFinalMessage = `${clientFinalMessageBare},p=${btoa(clientProof)}`;
+        return btoa(clientFinalMessage);
     }
 }

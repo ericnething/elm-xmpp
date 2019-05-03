@@ -13,12 +13,28 @@ const bind = function(app) {
 
     // Handle events from Elm
     app.ports.toSocket.subscribe(message => {
+        console.log("port message", message);
         switch (message.msgType) {
         case "connect":
             openWebsocket(message.msg);
             break;
-        case "sendString":
+        case "send-string":
             sendString(message.msg);
+            break;
+        case "sasl-initial": {
+            const resp = scramSha1.initialResponse(message.msg);
+            app.ports.fromSocket.send({
+                msgType: "sasl-initial-response",
+                msg: resp
+            });
+        }
+            break;
+        case "sasl-challenge":
+            scramSha1.challengeResponse(message.msg)
+                .then(resp => app.ports.fromSocket.send({
+                    msgType: "sasl-challenge-response",
+                    msg: resp
+                }));
             break;
         }
     });
@@ -68,7 +84,7 @@ function openHandler(toElm, socket, url, event) {
 function messageHandler(toElm, url, event) {
     if (typeof event.data == "string") {
         toElm.send({
-            msgType: "stringMessage",
+            msgType: "string-message",
             msg: event.data
         });
     }

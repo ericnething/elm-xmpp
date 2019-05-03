@@ -5,7 +5,7 @@ import Html exposing (Html, button, div, input, pre, text)
 import Html.Attributes exposing (class, value)
 import Html.Events exposing (onClick, onInput)
 import Http
-import Websocket
+import Client
 
 
 
@@ -26,66 +26,76 @@ main =
 
 
 type alias Model =
-    { socketInfo : Maybe Websocket.ConnectionInfo
+    { client : Client.Model
     , toSend : String
     , sentMessages : List String
-    , recievedMessages : List String
+    , receivedMessages : List String
     }
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { socketInfo = Nothing
-      , toSend = "ping!"
-      , sentMessages = []
-      , recievedMessages = []
-      }
-    , Websocket.connect "wss://echo.websocket.org" []
-    )
+    let
+        (client, cmd) =
+            Client.init
+            { url = "ws://localhost:5280/ws-xmpp"
+            , credentials = Client.Credentials "welkin" "foobar"
+            }
+    in
+        ( { client = client
+          , toSend = """<open xmlns="urn:ietf:params:xml:ns:xmpp-framing" xml:lang="en" to="localhost" version="1.0"/>"""
+          , sentMessages = []
+          , receivedMessages = []
+          }
+        , Cmd.map ClientMsg cmd
+        )
 
 
 
 -- UPDATE
 
-
 type Msg
-    = SocketConnect Websocket.ConnectionInfo
-    | SendStringChanged String
-    | RecievedString String
+    = ClientMsg Client.Msg
+    | UpdateInput String
     | SendString
-    | Error String
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        SocketConnect socketInfo ->
-            ( { model | socketInfo = Just socketInfo }, Cmd.none )
+        ClientMsg clientMsg ->
+            let
+                (newClient, cmd, externalMsg) =
+                    Client.update clientMsg model.client
 
-        SendStringChanged string ->
+                (updatedModel, externalCmd) =
+                    handleClientMsg externalMsg { model | client = newClient}
+            in
+                ( updatedModel
+                , Cmd.batch
+                    [ Cmd.map ClientMsg cmd
+                    , externalCmd
+                    ]
+                )
+
+        UpdateInput string ->
             ( { model | toSend = string }, Cmd.none )
 
         SendString ->
-            case model.socketInfo of
-                Just socketInfo ->
-                    ( { model | sentMessages = model.toSend :: model.sentMessages }
-                    , Websocket.sendString socketInfo model.toSend
-                    )
-
-                Nothing ->
-                    ( model, Cmd.none )
-
-        RecievedString message ->
-            ( { model | recievedMessages = message :: model.recievedMessages }
-            , Cmd.none
+            ( { model | sentMessages = model.toSend :: model.sentMessages }
+            , Cmd.map ClientMsg (Client.send model.toSend)
             )
 
-        Error errMsg ->
-            let
-                errLog =
-                    Debug.log "Error" errMsg
-            in
-            ( model, Cmd.none )
+
+handleClientMsg : Client.ExternalMsg -> Model -> (Model, Cmd Msg)
+handleClientMsg msg model =
+    case msg of
+        Client.None ->
+            (model, Cmd.none)
+
+        Client.Message message ->
+            ({ model | receivedMessages = message :: model.receivedMessages }
+            , Cmd.none)
 
 
 
@@ -94,19 +104,7 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Websocket.events
-        (\event ->
-            case event of
-                Websocket.Connected info ->
-                    SocketConnect info
-
-                Websocket.StringMessage message ->
-                    RecievedString message
-
-                Websocket.BadMessage error ->
-                    Error error
-        )
-
+    Sub.map ClientMsg (Client.subscriptions model.client)
 
 
 -- VIEW
@@ -121,8 +119,8 @@ view model =
 
 
 connectionState model =
-    div [ class "connectionState" ]
-        [ case model.socketInfo of
+    div []
+        [ case model.client.socketInfo of
             Nothing ->
                 text "Connecting..."
 
@@ -137,18 +135,18 @@ connectionState model =
 stringMsgControls : Model -> Html Msg
 stringMsgControls model =
     div []
-        [ div [ class "controls" ]
+        [ div []
             [ button [ onClick SendString ] [ text "Send" ]
-            , input [ onInput SendStringChanged, value model.toSend ] []
+            , input [ onInput UpdateInput, value model.toSend ] []
             ]
-        , div [ class "stringMessages" ]
+        , div []
             [ div [ class "sent" ]
-                (div [ class "header" ] [ text "Sent" ]
+                (div [] [ text "Sent" ]
                     :: List.map messageInfo model.sentMessages
                 )
-            , div [ class "recieved" ]
-                (div [ class "header" ] [ text "Recieved" ]
-                    :: List.map messageInfo model.recievedMessages
+            , div []
+                (div [] [ text "Received" ]
+                    :: List.map messageInfo model.receivedMessages
                 )
             ]
         ]

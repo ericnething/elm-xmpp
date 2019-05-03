@@ -9,7 +9,7 @@ module Xmpp.Connection exposing (..)
 
  -}
 
-import Xmpp.Xml exposing (Xml, Node(..), Attribute)
+import Xmpp.Xml as Xml exposing (Xml, Node(..), Attribute)
 import Xmpp.Stanza
 import Xmpp.JID as JID exposing (JID)
 import Xmpp.Xml.Decode as XD
@@ -49,6 +49,7 @@ type Credentials
 type Response
     = OpenResponse String
     | FeaturesResponse (List Sasl.Mechanism)
+    | ChallengeResponse String
 
 -- connect : String -> Cmd msg
 -- connect url =
@@ -76,6 +77,23 @@ wrapStanza xmldoc =
 toXml : Node -> Xml
 toXml = Xml [] Nothing
 
+
+responseDecoder : XD.Decoder Response
+responseDecoder =
+    XD.oneOf
+        [ openResponseDecoder
+        , challengeResponseDecoder
+        , featuresResponseDecoder
+        ]
+
+decodeResponse : String -> Result XD.Error Response
+decodeResponse s =
+    case Xml.parse s of
+        Ok result ->
+            XD.decodeXml responseDecoder (wrapStanza result)
+
+        Err e ->
+            Err (XD.Failure "Invalid Xml" (Text s))
 
 {- Initialize the stream
 
@@ -107,7 +125,7 @@ openResponseDecoder =
         XD.path
             [XD.tagWith "open"
                  [ Attribute "xmlns" ns.framing
-                 , Attribute "from" "localhost"
+                 -- , Attribute "from" "localhost"
                  , Attribute "version" "1.0"
                  ]
             ]
@@ -138,12 +156,29 @@ featuresResponseDecoder =
             (XD.leakyList Sasl.mechanismDecoder)
 
 
-auth : Sasl.Mechanism -> Xml
-auth mech =
+auth : String -> Sasl.Mechanism -> Xml
+auth s mech =
     toXml <|
         Element "auth"
             [ Attribute "xmlns" ns.sasl
             , Attribute "mechanism" (Sasl.showMechanism mech)
             ]
-            []
+            [ Text s ]
 
+
+challengeResponseDecoder : XD.Decoder Response
+challengeResponseDecoder =
+    XD.map ChallengeResponse <|
+        XD.path
+            [XD.tagWith "challenge"
+                 [ Attribute "xmlns" ns.sasl ]
+            ]
+            (XD.single XD.string)
+
+
+challengeResponse : String -> Xml
+challengeResponse s =
+    toXml <|
+        Element "response"
+            [ Attribute "xmlns" ns.sasl ]
+            [ Text s ]
