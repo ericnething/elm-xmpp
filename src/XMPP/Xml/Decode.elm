@@ -146,7 +146,7 @@ See [`path`](#path) for examples.
 
 -}
 type ListDecoder a
-    = ListDecoder (( List Node, Node ) -> Result Error a)
+    = ListDecoder ((List Node, Node) -> Result Error a)
 
 
 {-| Represents error on decode execution.
@@ -1015,7 +1015,7 @@ pathImpl path_ (ListDecoder listDecoder) node =
     node
         |> children
         |> query path_ node
-        |> listDecoder
+        |> Result.andThen listDecoder
         |> Result.mapError (concatPath path_)
 
 
@@ -1029,26 +1029,33 @@ children node =
             []
 
 
-query : List NodeQuery -> Node -> List Node -> ( List Node, Node )
+query : List NodeQuery -> Node -> List Node -> Result Error (List Node, Node)
 query path_ ancestor collected =
     case path_ of
         [] ->
-            ( collected, ancestor )
+            Ok (collected, ancestor)
 
         [ segment ] ->
-            -- This clause is necessary in order to keep "empty" node as is, like "<val></val>".
-            -- Without special care, such nodes are silently eliminated by `List.concatMap children`.
-            ( List.filter (matchesNodeQuery segment) collected, ancestor )
+            -- This clause is necessary in order to keep "empty" node
+            -- as is, like "<val></val>".  Without special care, such
+            -- nodes are silently eliminated by `List.concatMap
+            -- children`.
+            case List.filter (matchesNodeQuery segment) collected of
+                [] -> Err (Failure "Path not found" ancestor)
+                xs -> Ok (xs, ancestor)
 
         segment :: ss ->
             case List.filter (matchesNodeQuery segment) collected of
                 [] ->
                     -- It is pointless to dig any deeper
-                    ( [], ancestor )
+                    Err (Failure "Path not found" ancestor)
+                    -- ([], ancestor)
 
                 [ onlyOne ] ->
-                    -- This is the only node that produced path-matching element,
-                    -- effectively "narrowing down" pathfinding context for more consice error messages
+                    -- This is the only node that produced
+                    -- path-matching element, effectively "narrowing
+                    -- down" pathfinding context for more consice
+                    -- error messages
                     query ss onlyOne (children onlyOne)
 
                 many ->
