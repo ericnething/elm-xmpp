@@ -53,6 +53,7 @@ type Msg
     | Error String
     | GotSaslInitialResponse JD.Value
     | GotSaslChallengeResponse JD.Value
+    | GotSaslSuccessValidation JD.Value
 
 type SaslAuth
     = NotStarted
@@ -61,8 +62,9 @@ type SaslAuth
     | FeaturesReceived
     | AuthSent JD.Value
     | ChallengeReceived
-    | ChallengeResponseSent
-    | AuthResultReceived
+    | ChallengeResponseSent JD.Value
+    | AuthSuccessReceived
+    | AuthCompleted
 
 
 update : Msg -> Model -> (Model, Cmd Msg, ExternalMsg)
@@ -125,7 +127,7 @@ update msg model =
                 Ok token ->
                     if model.sasl == ChallengeReceived then
                         Debug.log "ChallengeResponseSent"
-                        ({ model | sasl = ChallengeResponseSent }
+                        ({ model | sasl = ChallengeResponseSent data }
                         , sendChallengeResponse token
                         , None
                         )
@@ -136,6 +138,21 @@ update msg model =
                     let _ = Debug.log "Decoding Failed: " e in
                     (model, Cmd.none, None)
 
+        GotSaslSuccessValidation data ->
+            case decodeSaslSuccessValidation data of
+                Ok isValid ->
+                    if model.sasl == AuthSuccessReceived && isValid then
+                        Debug.log "SASL Success"
+                        ({ model | sasl = AuthCompleted }
+                        , Cmd.none
+                        , None
+                        )
+                    else
+                        Debug.log "Success Validation Failed" (model, Cmd.none, None)
+
+                Err e ->
+                    let _ = Debug.log "Decoding Failed: " e in
+                    (model, Cmd.none, None)
 
 
 handleResponse : Xmpp.Connection.Response
@@ -174,6 +191,18 @@ handleResponse resp model =
                 _ ->
                     (model, Cmd.none, None)
 
+        Xmpp.Connection.AuthSuccess successMessage ->
+            let _ = Debug.log "AuthSuccess" model.sasl in
+            case model.sasl of
+                ChallengeResponseSent data ->
+                    ({ model | sasl = AuthSuccessReceived }
+                    , Websocket.sendCmd "sasl-validate-success"
+                        (encodeSuccess successMessage data)
+                    , None)
+
+                _ ->
+                    (model, Cmd.none, None)
+
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
@@ -192,6 +221,9 @@ subscriptions model =
                 Websocket.SaslChallengeResponse data ->
                     GotSaslChallengeResponse data
 
+                Websocket.SaslSuccessValidation data ->
+                    GotSaslSuccessValidation data
+
                 Websocket.BadMessage error ->
                     Error error
         )
@@ -208,13 +240,16 @@ decodeSaslInitialResponse value =
 
 
 decodeSaslChallengeResponse : JD.Value -> Result JD.Error String
-decodeSaslChallengeResponse = JD.decodeValue JD.string
+decodeSaslChallengeResponse value =
+    JD.decodeValue (JD.field "encoded" JD.string) value
 
 sendChallengeResponse : String -> Cmd Msg
 sendChallengeResponse data =
     sendXml <|
         Xmpp.Connection.challengeResponse data
 
+decodeSaslSuccessValidation : JD.Value -> Result JD.Error Bool
+decodeSaslSuccessValidation = JD.decodeValue JD.bool
 
 send : String -> Cmd Msg
 send = toCmd << SendString << Debug.log "DEBUG: "
@@ -236,4 +271,11 @@ encodeChallenge serverMessage clientData =
         [ ("serverFirstMessage", JE.string serverMessage)
         , ("client", clientData)
         ]
-    
+
+encodeSuccess : String -> JE.Value -> JE.Value
+encodeSuccess successMessage challengeData =
+    JE.object
+        [ ("successMessage", JE.string successMessage)
+        , ("challengeData", challengeData)
+        ]
+

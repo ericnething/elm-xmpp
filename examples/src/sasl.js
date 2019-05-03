@@ -240,7 +240,12 @@ const scramSha1 = {
                 console.log(serverNonce, salt, iterations);
                 return {
                     serverNonce,
+
+                    // The salt is base64-encoded, so needs to be
+                    // carefully transformed into a byte buffer as
+                    // such, *not* as unicode text.
                     salt: decode64(salt),
+                    
                     iterations: parseInt(iterations)
                 }
             } else {
@@ -259,14 +264,15 @@ const scramSha1 = {
         const authMessage = _appendBuffer(
             _appendBuffer(
                 scramSha1.textEncoder.encode(`${client.initialMessageBare},`),
+
+                // Be careful to transform this base64-encoded value
+                // into a byte buffer as-is, *not* as unicode text.
                 decode64(serverFirstMessage)),
+            
             scramSha1.textEncoder.encode(`,${clientFinalMessageBare}`)
         );
 
         const clientSignature = await HMAC(storedKey, authMessage);
-        // const clientProof = String.fromCharCode.apply(
-        //     null, _xor(clientKey, clientSignature)
-        // );
         const clientProof = _xor(clientKey, clientSignature);
         console.log("clientProof", clientProof);
         console.log("clientProof encoded", base64ArrayBuffer(clientProof));
@@ -275,6 +281,17 @@ const scramSha1 = {
         const serverSignature = await HMAC(serverKey, authMessage);
         console.log("Server Signature", base64ArrayBuffer(serverSignature));
         const clientFinalMessage = `${clientFinalMessageBare},p=${base64ArrayBuffer(clientProof)}`;
-        return btoa(clientFinalMessage);
+        return {
+            serverSignature: encode64(serverSignature),
+            encoded: btoa(clientFinalMessage)
+        }
+    },
+
+    validateSuccess: function({ successMessage, challengeData: { serverSignature } }) {
+        const v_successMessage = atob(successMessage);
+        const validation =
+              v_successMessage.startsWith("v=") &&
+              v_successMessage.slice(2);
+        return (serverSignature === validation);
     }
 }

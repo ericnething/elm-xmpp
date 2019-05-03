@@ -36,6 +36,13 @@ const bind = function(app) {
                     msg: resp
                 }));
             break;
+        case "sasl-validate-success": {
+            const resp = scramSha1.validateSuccess(message.msg);
+            app.ports.fromSocket.send({
+                msgType: "sasl-success-validated",
+                msg: resp
+            });
+        }
         }
     });
 

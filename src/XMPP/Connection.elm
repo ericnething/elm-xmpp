@@ -50,6 +50,7 @@ type Response
     = OpenResponse String
     | FeaturesResponse (List Sasl.Mechanism)
     | ChallengeResponse String
+    | AuthSuccess String
 
 -- connect : String -> Cmd msg
 -- connect url =
@@ -84,6 +85,7 @@ responseDecoder =
         [ openResponseDecoder
         , challengeResponseDecoder
         , featuresResponseDecoder
+        , authSuccessDecoder
         ]
 
 decodeResponse : String -> Result XD.Error Response
@@ -182,3 +184,13 @@ challengeResponse s =
         Element "response"
             [ Attribute "xmlns" ns.sasl ]
             [ Text s ]
+
+authSuccessDecoder : XD.Decoder Response
+authSuccessDecoder =
+    XD.map AuthSuccess <|
+        XD.path
+            [XD.tagWith "success"
+                 [ Attribute "xmlns" ns.sasl ]
+            ]
+            (XD.single XD.string)
+

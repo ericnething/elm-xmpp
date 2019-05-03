@@ -58,6 +58,7 @@ type Event
     | StringMessage String
     | SaslInitialResponse Value
     | SaslChallengeResponse Value
+    | SaslSuccessValidation Value
     | BadMessage String
 
 
@@ -94,6 +95,10 @@ eventDecoder =
 
                     "sasl-challenge-response" ->
                         Decode.map SaslChallengeResponse
+                            (Decode.field "msg" Decode.value)
+
+                    "sasl-success-validated" ->
+                        Decode.map SaslSuccessValidation
                             (Decode.field "msg" Decode.value)
 
                     _ ->
